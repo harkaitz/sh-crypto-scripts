@@ -1,0 +1,239 @@
+#!/bin/sh -e
+#L:
+#L:  MIT License
+#L:  
+#l:  Bug reports, feature requests to gemini|https://harkadev.com/oss
+#l:  Copyright (c) 2022 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+##:
+#h: Usage: $0 OPTS...
+#h:
+#h: Install a Monero Node in a Linux machine. If you have a
+#h: monero blockchain already stored in a drive you can recover
+#h: it with `-r`.
+#h:
+#h: The following settings have been chosen:
+#h:
+#h:     - P2P will bind to 0.0.0.0:18080. 
+#h:     - Restricted RPC 0.0.0.0:18081.
+#h:     - Bandwidth: 1MB up, 1MB down.
+#h:     - Peer: node.moneroworld.com.
+#h:     - Public node: false.
+#h:     - Data directory: /var/lib/monero.
+#h:     - Installation prefix: /opt/monero.
+#h:     - Configuration file: /opt/monero/monerod.cfg.
+#h:     - Service name: monero
+#h:
+#h: Command line operations:
+#h:
+#h:     -r data.mdb : Recover from "data.mdb".
+#h:     -i          : Install monero.
+#h:     -c          : Create config file.
+#h:     -l          : Create launcher.
+#h:     -s          : Create service (Only Void Linux).
+#h:     -e          : Enable service (Only Void Linux).
+##:
+. hlog
+. vrun
+. hpkg
+. hget
+. hfile
+. hmain
+monero_setup() {
+    local OPTIND optopt= opt_r= opt_i= opt_l= opt_s= opt_e=
+    while getopts "r:iclse" optopt; do
+        case $optopt in
+            r)  opt_r="${OPTARG}";;
+            i)  opt_i=y;;
+            c)  opt_c=y;;
+            l)  opt_l=y;;
+            s)  opt_s=y;;
+            e)  opt_e=y;;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+    ## Copy blockchain to disk.
+    if test -n "${opt_r}"; then
+        sudo mkdir -p /var/lib/monero/lmdb
+        sudo dd                                 \
+             if="${OPTARG}"                     \
+             of="/var/lib/monero/lmdb/data.mdb" \
+             status="progress"                  \
+             bs="100M"
+    fi
+    ## Install Monero.
+    if test -n "${opt_i}"; then
+        monerod_install \
+            prefix="/opt/monero"
+    fi
+    ## Configure Monero.
+    if test -n "${opt_c}"; then
+        monerod_config \
+            cfgfile="/opt/monero/monerod.cfg" \
+            datadir="/var/lib/monero"         \
+            logfile="/var/log/monero/monero.log"
+    fi
+    ## Create launcher.
+    if test -n "${opt_l}"; then
+        monerod_launcher \
+            launcher="/opt/monero/monerod-launcher" \
+            cfgfile="/opt/monero/monerod.cfg" \
+            prefix="/opt/monero"
+    fi
+    ## Create service.
+    if test -n "${opt_s}"; then
+        monerod_service \
+            launcher="/opt/monero/monerod-launcher" \
+            service="monero"
+    fi
+    ## Enable service.
+    if test -n "${opt_e}"; then
+        hpkg -EV @void "monero"
+    fi
+}
+## -----------------------------------------------------------------------------
+monerod_install() {
+    local prefix= "$@"
+    local u="https://downloads.getmonero.org/cli" m="`uname -s`.`uname -m`"
+    if test ! -n "${prefix}"; then
+        hlog error "Please specify a prefix to install Monero on with 'prefix'."
+        return 1
+    fi
+    hlog info "Installing Monero to ${prefix} ..."
+    if test ! -f "${prefix}/monero-wallet-cli"; then
+        case "${m}" in
+            Linux.x86_64)  local u="${u}/linux64"   n="monero-linux-x64.tar.bz2"  ;;
+            Linux.i686)    local u="${u}/linux32"   n="monero-linux-x86.tar.bz2"  ;;
+            Linux.aarch64) local u="${u}/linuxarm8" n="monero-linux-armv8.tar.bz2";;
+            Linux.arm*)    local u="${u}/linuxarm7" n="monero-linux-armv7.tar.bz2";;
+            *)             hlog error "Unsupported platform ${m}"; return 1       ;;
+        esac
+        local f="`hget "${u}" "${n}"`"
+        if test -n "${f}"; then
+            vrun sudo mkdir -p "${prefix}"
+            vrun sudo tar xf "${f}" --strip-components=1 --exclude=LICENSE -C "${prefix}"
+        else
+            return 1
+        fi
+    fi
+}
+monerod_config() {
+    local cfgfile= datadir= logfile= "$@"
+    if test ! -n "${cfgfile}"; then
+        hlog error "Please specify the output config file with 'cfgfile'."
+        return 1
+    elif test ! -n "${datadir}"; then
+        hlog error "Please specify the datadir with 'datadir'."
+        return 1
+    elif test ! -n "${logfile}"; then
+        hlog error "Please specify a logfile with 'logfile'."
+        return 1
+    fi
+    local logdir="`dirname "${logfile}"`"
+    hlog info "Creating ${logdir} ..."
+    sudo mkdir -p "${logdir}"
+    hlog info "Creating ${cfgfile} ..."
+    hfile create sudo "${cfgfile}" <<-EOF
+	## Data location.
+	data-dir=${datadir}
+	log-file=${logfile}
+	max-log-file-size=10000
+	prune-blockchain=true
+	db-sync-mode=fastest:async
+	
+	## P2P Full node.
+	p2p-bind-ip=0.0.0.0            # Bind to all interfaces (the default)
+	p2p-bind-port=18080            # Bind to default port
+	public-node=false
+	
+	## RPC
+	rpc-bind-ip=0.0.0.0            # Bind to all interfaces
+	rpc-bind-port=18081            # Bind on default port
+	confirm-external-bind=1        # Open node (confirm)
+	restricted-rpc=1               # Prevent unsafe RPC calls
+	no-zmq=true
+	
+	## PEER
+	add-peer=node.moneroworld.com
+	
+	## DNS (Block known malicious)
+	enforce-dns-checkpointing=1
+	enable-dns-blocklist=true
+	
+	## UPNP
+	no-igd=false
+	
+	## Bandwidth
+	out-peers=64
+	in-peers=-1
+	limit-rate-up=1048576
+	limit-rate-down=1048576
+	EOF
+}
+monerod_launcher() {
+    local prefix= cfgfile= launcher= "$@"
+    if test ! -n "${cfgfile}"; then
+        hlog error "Please specify the output config file with 'cfgfile'."
+        return 1
+    elif test ! -n "${prefix}"; then
+        hlog error "Please specify the installation prefix with 'prefix'."
+        return 1
+    elif test ! -n "${launcher}"; then
+        hlog error "Please specify the launcher with 'launcher'."
+        return 1
+    fi
+    hlog info "Creating ${launcher} ..."
+    hfile wrapper sudo "${launcher}" <<-EOF
+	#!/bin/sh -e
+	if test "\`whoami\`" = "root"; then
+	    exec nice "${prefix}/monerod" --non-interactive --config-file "${cfgfile}"
+	elif test -t 0; then
+	    exec sudo nice "${prefix}/monerod" --config-file "${cfgfile}"
+	else
+	    echo "monerod-launcher: Launch this as root." >&2
+	    exit 1
+	fi 
+	EOF
+}
+monerod_service() {
+    local launcher= service= "$@"
+    if test ! -n "${launcher}"; then
+        hlog error "Please specify the launcher with 'launcher'."
+        return 1
+    elif test ! -n "${service}"; then
+        hlog error "Please specify the service name with 'service'."
+        return 1
+    fi
+    if hpkg -c @void; then
+        hlog info "Creating /etc/sv/${service}/run ..."
+        sudo mkdir -p "/etc/sv/${service}"
+        hfile wrapper sudo "/etc/sv/${service}/run" <<-EOF
+	#!/bin/sh
+	exec "${launcher}"
+	EOF
+    else
+        hlog error "Do not know how to create a service in this OS."
+        return 1
+    fi
+}
+## -----------------------------------------------------------------------------
+hmain -f "monero-setup" monero_setup "$@"
