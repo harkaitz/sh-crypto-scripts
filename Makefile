@@ -15,5 +15,5 @@ endif
 install: install-sh
 install-sh:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp bin/monero-setup  $(DESTDIR)$(PREFIX)/bin
+	cp bin/monero-setup bin/xmrig-setup  $(DESTDIR)$(PREFIX)/bin
 ## -- install-sh --

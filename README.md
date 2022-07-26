@@ -40,6 +40,26 @@ monero-setup
         -s          : Create service (Only Void Linux).
         -e          : Enable service (Only Void Linux).
 
+xmrig-setup
+
+    Usage: XMR_MINING_ADDR=XMR-ADDR/ANYTHING/EMAIL xmrig-setup ...
+    
+    Build and configure XMRIG to mine monero. Please set XMR_MINING_ADDR
+    environment variable before `b-tar` to configure it to mine for you.
+    
+    The chosen pool is "nanopool".
+    
+    ... b-deps              : Build dependencies.
+    ... b-tar               : Build XMRIG tar.
+    ... nanopool            : Show your mining progress.
+    ... install MACHINES... : Install XMRIG tar (Launch with `sudo xmrig`)
+    ... cpus    MACHINES... : List the CPU from the logfile.
+    ... speed   MACHINES... : View last recorded speed.
+    ... status  MACHINES... : View service status.
+    ... stop    MACHINES... : Stop services in machines.
+    ... enable  MACHINES... : Enable services in machines.
+    ... disable MACHINES... : Disable services in machines.
+
 ## Collaborating
 
 For making bug reports, feature requests and donations visit

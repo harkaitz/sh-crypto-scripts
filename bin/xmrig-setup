@@ -1,0 +1,246 @@
+#!/bin/sh -e
+#L:
+#L:  MIT License
+#L:  
+#l:  Bug reports, feature requests to gemini|https://harkadev.com/oss
+#l:  Copyright (c) 2022 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+##:
+#h: Usage: XMR_MINING_ADDR=XMR-ADDR/ANYTHING/EMAIL $0 ...
+#h:
+#h: Build and configure XMRIG to mine monero. Please set XMR_MINING_ADDR
+#h: environment variable before `b-tar` to configure it to mine for you.
+#h:
+#h: The chosen pool is "nanopool".
+#h:
+#h: ... b-deps              : Build dependencies.
+#h: ... b-tar               : Build XMRIG tar.
+#h: ... nanopool            : Show your mining progress.
+#h: ... install MACHINES... : Install XMRIG tar (Launch with `sudo xmrig`)
+#h: ... cpus    MACHINES... : List the CPU from the logfile.
+#h: ... speed   MACHINES... : View last recorded speed.
+#h: ... status  MACHINES... : View service status.
+#h: ... stop    MACHINES... : Stop services in machines.
+#h: ... enable  MACHINES... : Enable services in machines.
+#h: ... disable MACHINES... : Disable services in machines.
+##:
+. hlog
+. hmain
+. hfile
+. hcross        # sh-htoolchain
+. build_libuv   # sh-package-col1
+. build_hwloc   # sh-package-col2
+. build_xmrig   # sh-package-col2
+. gettar-tmpdir # sh-gettar
+. gettar-create # sh-gettar
+. tar-install   # sh-tar-install
+xmrig_setup() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        b-deps)
+            hcross -w libuv
+            hcross -w hwloc --disable-shared --enable-static
+            ;;
+        b-tar)
+            xmrig_build_tar
+            ;;
+        nanopool)
+            local addr="`echo ${XMR_MINING_ADDR} | sed 's|/.*||'`"
+            if test ! -n "${addr}"; then
+                hlog error "Please set XMR_MINING_ADDR=XMR-ADDR/WORKER/EMAIL"
+                return 1
+            fi
+            xdg-open "https://xmr.nanopool.org/account/${addr}"
+            ;;
+        install)
+            local tar="`gettar_create -n xmrig`"
+            test -n "${tar}"
+            for m in "$@"; do
+                hlog info "[${m}]"
+                case "${m}" in
+                    ''|localhost)
+                        tar_install -v -S "${tar}"
+                        if test -e /var/service/xmrig; then
+                            sudo sv down xmrig || true
+                            sudo sv up   xmrig || true
+                        fi
+                        ;;
+                    *)
+                        tar_install -v -S -r "$m" "${tar}"
+                        ssh "$1" "
+                        if test -e /var/service/xmrig; then
+                            sudo sv down xmrig || true
+                            sudo sv up   xmrig || true
+                        fi"
+                        ;;
+                esac
+            done
+            ;;
+        cpus)
+            for m in "$@"; do
+                printf '%-10s : ' "${m}"
+                xmrig_sh "${m}" "
+                if test -e /var/log/xmrig/xmrig.log; then
+                    sed -n 's| . CPU *||p' /var/log/xmrig/xmrig.log | tail -n 1
+                else
+                    echo unknown
+                fi"
+            done
+            ;;
+        speed)
+            for m in "$@"; do
+                printf '%-10s : ' "${m}"
+                xmrig_sh "${m}" "
+                if test -e /var/log/xmrig/xmrig.log; then
+                    t=\"\`sed -n 's|.*miner  *speed *||p' /var/log/xmrig/xmrig.log | tail -n 1\`\"
+                    echo \"\${t}\"
+                else
+                    echo unknown
+                fi"
+            done
+            ;;
+        status)
+            for m in "$@"; do
+                printf '%-10s : ' "${m}"
+                xmrig_sh "${m}" '
+                if test -e /var/service/xmrig; then
+                    sudo sv status xmrig || true
+                else
+                    echo "disabled"
+                fi
+                '
+            done
+            ;;
+        stop)
+            for m in "$@"; do
+                printf '%-10s : ' "${m}"
+                xmrig_sh "${m}" '
+                if test -e /var/service/xmrig; then
+                    echo "Shutting down ..."
+                    sudo sv down xmrig || true
+                else
+                    echo "disabled"
+                fi'
+            done
+            ;;
+        enable)
+            for m in "$@"; do
+                printf '%-10s : ' "${m}"
+                xmrig_sh "${m}" '
+                if test ! -e /var/service/xmrig && test -e /var/service; then
+                    echo "Enabling service ..."
+                    sudo ln -s /etc/sv/xmrig /var/service
+                else
+                    echo "Nothing to do."
+                fi'
+            done
+            ;;
+        disable)
+            xmrig_setup stop "$@"
+            for m in "$@"; do
+                printf '%-10s : ' "${m}"
+                xmrig_sh "${m}" '
+                if test -e /var/service/xmrig; then
+                    echo "Disabling service ..."
+                    sudo rm /var/service/xmrig
+                else
+                    echo "Nothing to do."
+                fi'
+            done
+            ;;
+        *)
+            hlog error "Invalid argument: ${cmd}"
+            return 1
+            ;;
+    esac
+}
+## -----------------------------------------------------------------------------
+xmrig_build_tar() {
+    local tmp="`gettar_tmpdir xmrig`"
+    local prefix="/usr/local"
+    local logdir="/var/log/xmrig"
+    local etcdir="/etc"
+    if true; then
+        hlog info "Building XMRIG ..."
+        hcross -d "${tmp}" -p "${prefix}" -w xmrig -DBUILD_STATIC=ON
+        hlog info "Renaming XMRIG executable ..."
+        mv "${tmp}${prefix}/bin/xmrig" \
+           "${tmp}${prefix}/bin/xmrig-`uname -s`-`uname -m`"
+        hlog info "Creating XMRIG config file ..."
+        mkdir -p "${tmp}${etcdir}" "${tmp}${logdir}"
+        hfile create "${tmp}${etcdir}/xmrig.cfg" <<-EOF 
+	{
+	    "autosave": true,
+	    "randomx": {
+	        "init": -1,
+	        "mode": "fast",
+	        "numa": true
+	    },
+	    "cpu"         : true,
+	    "donate-level": 0,
+	    "log-file"    : "${logdir}/xmrig.log",
+	    "pools": [
+	        {
+	            "algo"      : "rx/0",
+	            "coin"      : "monero",
+	            "url"       : "xmr-eu1.nanopool.org:14433",
+	            "user"      : "${XMR_MINING_ADDR}",
+	            "keepalive" : false,
+	            "enabled"   : true,
+	            "tls"       : true
+	        }
+	    ]
+	}
+	EOF
+        hlog info "Creating XMRIG wrapper ..."
+        hfile wrapper "${tmp}${prefix}/bin/xmrig" <<-EOF
+	#!/bin/sh -e
+	tmpfile="\`mktemp\`"
+	if test ! "\`whoami\`" = root; then
+	    echo "xmrig: You must execute this as root." | tee "${logdir}/xmrig.log" >&2
+	    exit 1
+	fi
+	hostname="\`uname -n | sed 's|\\..*||'\`"
+	sed "/user/s|/[^/]*/|/\${hostname}/|g" ${etcdir}/xmrig.cfg > "\${tmpfile}"
+	sysctl -w vm.nr_hugepages=1168 || true
+	exec ${prefix}/bin/xmrig-\`uname -s\`-\`uname -m\` -c "\${tmpfile}"
+	EOF
+        hlog info "Creating service for Void Linux ..."
+        mkdir -p "${tmp}${etcdir}/sv/xmrig"
+        hfile wrapper "${tmp}${etcdir}/sv/xmrig/run" <<-EOF
+	#!/bin/sh
+	exec "${prefix}/bin/xmrig"
+	EOF
+    fi >&2
+    gettar_create "${tmp}"
+}
+xmrig_sh() {
+    local m="$1"; shift
+    case "${m}" in
+        localhost) sh -c "$*"      ;;
+        *)         ssh "${m}" "$*" ;;
+    esac
+}
+
+
+## -----------------------------------------------------------------------------
+hmain -f "xmrig-setup" xmrig_setup "$@"
