@@ -1,0 +1,255 @@
+#!/bin/bash -e
+#L:
+#L:  MIT License
+#L:  
+#l:  Bug reports, feature requests to gemini|https://harkadev.com/oss
+#l:  Copyright (c) 2022 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+##:
+#h: Usage: $0 ...
+#h:
+#h: Command line interface to the tradeogre exchange.
+#h: (MARKET: PRICE-QUANTITY)
+#h:
+#h: ... markets                         : List market names.
+#h: ... orderbook[-c] {buy,sell} MARKET : View market order book.
+#h: ... ticker[-c]               MARKET : List ticker.
+#h: ... mhistory                 MARKET : Print history.
+#h: ... diff                     MARKET : Print difference to coingecko.
+#h:
+#h: ... buy|sell MRK QUANT PRICE  : Put operation.
+#h: ... buy      MRK BASE         : Match with orderbook.
+#h: ... sell     MRK QUANT        : Match with orderbook.
+#h: ... orders                    : Pending orders.
+#h: ... balance                   : Balance in configured currency.
+#h: ... balances                  : Portfolio.
+. hlog
+. hbc
+. hmain
+. coingecko
+tradeogre() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        show) tradeogre_show_variables ;;
+        ## Public API
+        markets)     tradeogre_markets         "$@" ;;
+        orderbook)   tradeogre_orderbook_do    "$@" ;;
+        orderbook-c) tradeogre_orderbook_do_c  "$@" ;;
+        ticker)      tradeogre_ticker          "$@" ;;
+        ticker-c)    tradeogre_ticker_currency "$@" ;;
+        mhistory)    tradeogre_mhistory        "$@" ;;
+        diff)        tradeogre_diff            "$@" ;;
+        ## Private API
+        buy|sell)    tradeogre_do "${cmd}" "$@" ;;
+        orders)      tradeogre_orders           ;;
+        balance)     tradeogre_balance          ;;
+        balances)    tradeogre_balances         ;;
+        ## Error.
+        *) hlog error "Invalid argument: ${cmd}."; return 1;;
+    esac
+}
+tradeogre_show_variables() {
+    printf '%-30s : %s\n'                                         \
+           TRADEOGRE_CURRENCY       "${TRADEOGRE_CURRENCY}"       \
+           TRADEOGRE_API_KEY        "${TRADEOGRE_API_KEY}"        \
+           TRADEOGRE_API_SECRET     "${TRADEOGRE_API_SECRET}"     \
+           TRADEOGRE_URL            "${TRADEOGRE_URL}"            \
+           TRADEOGRE_TRADE_FEE      "${TRADEOGRE_TRADE_FEE}"
+}
+tradeogre_calc_variables() {
+    TRADEOGRE_CURRENCY="${TRADEOGRE_CURRENCY:-USDT}"
+    TRADEOGRE_API_KEY="${TRADEOGRE_API_KEY:-}"
+    TRADEOGRE_API_SECRET="${TRADEOGRE_API_SECRET:-}"
+    TRADEOGRE_URL="https://tradeogre.com/api/v1"
+    TRADEOGRE_TRADE_FEE="0.002"
+}
+## -----------------------------------------------------------------------------
+## ---- PUBLIC API -------------------------------------------------------------
+## -----------------------------------------------------------------------------
+tradeogre_markets() {
+    curl -s "https://tradeogre.com/api/v1/markets" | jq -r '.[] | keys[0]'
+}
+tradeogre_orderbook_do() {
+    local order="$1" market="${2}"
+    tradeogre_is_valid_order  "${order}"
+    tradeogre_is_valid_market "${market}"
+    tradeogre_curl_JSON "${TRADEOGRE_URL}/orders/${market}"
+    case "${order}" in
+        buy)  jq -r '.buy  | to_entries[] | .key + " " + .value' <<< "${JSON}" | tac;;
+        sell) jq -r '.sell | to_entries[] | .key + " " + .value' <<< "${JSON}";;
+    esac
+}
+tradeogre_orderbook_do_c() {
+    local market="${2}"
+    tradeogre_is_valid_market "${market}"
+    local symbol1="$(cut -d - -f 1 <<< "${market}")"
+    local symbol2="$(cut -d - -f 2 <<< "${market}")"
+    local price1="$(coingecko p "${symbol1}")"
+    local price2="$(coingecko p "${symbol2}")"
+    tradeogre_orderbook_do "$@" | while read a b; do
+        echo $(hbc '@a * @p1' a="${a}" p1="${price1}") \
+             $(hbc '@b * @p2' b="${b}" p2="${price2}")
+    done
+}
+tradeogre_ticker() {
+    local market="${1}"
+    tradeogre_is_valid_market "${market}"
+    tradeogre_curl_JSON "${TRADEOGRE_URL}/ticker/${market}"
+    <<< "${JSON}" jq -r '
+    "InitialPrice    : " + .initialprice + "\n" +
+    "Price           : " + .price        + "\n" +
+    "High            : " + .high         + "\n" +
+    "Low             : " + .low          + "\n" +
+    "Volume          : " + .volume       + "\n" +
+    "Bid             : " + .bid          + "\n" +
+    "Ask             : " + .ask
+    '
+}
+tradeogre_ticker_currency() {
+    local market="${1}"
+    tradeogre_is_valid_market "${market}"
+    local symbol1="$(cut -d - -f 1 <<< "${market}")"
+    local symbol2="$(cut -d - -f 2 <<< "${market}")"
+    local price1="$(coingecko p "${symbol1}")"
+    local price2="$(coingecko p "${symbol2}")"
+    echo "CoinGecko base  : ${price1}"
+    echo "CoinGecko price : ${price2}"
+    tradeogre_ticker "$@" | while read -r l; do
+        local num="$(sed "s|^.* |scale=8\\; ${price1}*|" <<< "${l}" | bc)"
+        echo "${l} [${num}]"
+    done
+}
+tradeogre_mhistory() {
+    local market="${1}"
+    tradeogre_is_valid_market "${market}"
+    tradeogre_curl_STDOUT "${TRADEOGRE_URL}/history/${market}" | jq -r '
+    .[] | (.date|tostring) + " " + .type + " P " + .price + " C " + .quantity 
+    ' | column -t -s ' '
+}
+tradeogre_diff() {
+    local market="${1}"
+    tradeogre_is_valid_market "${market}"
+    tradeogre_curl_JSON "${TRADEOGRE_URL}/ticker/${market}"
+    local rate1="$(jq -r '.price' <<< "${JSON}")"
+    local rate2="$(coingecko rate "${market}")"
+    local diff="`hbc '(@r1-@r2)/@r1*100' r1=${rate1} r2=${rate2}`"
+    printf 'Price difference percentage to coingecko: %.2f\n' "${diff}"
+}
+
+## -----------------------------------------------------------------------------
+## ---- PERSONAL API -----------------------------------------------------------
+## -----------------------------------------------------------------------------
+tradeogre_do() { # ORDER MARKET QUANTITY PRICE
+    local order="$1" book='' market="$2" quantity="$3" price="$4" f="${TRADEOGRE_TRADE_FEE}"
+    tradeogre_is_valid_order  "${order}"
+    tradeogre_is_valid_market "${market}"
+    case "${quantity}" in
+        '') hlog error "Please specify the quantity."; return 1;;
+    esac
+    if test ! -n "${price}"; then
+        case "${order}" in
+            buy)  price="$(tradeogre_orderbook_do sell "${market}" | sed -n '5s| .*||p')";;
+            sell) price="$(tradeogre_orderbook_do buy  "${market}" | sed -n '5s| .*||p')";;
+        esac
+        case "${order}" in
+            buy)  quantity="` hbc '@q / @p*(1-@f)' q="${quantity}" p="${price}" f="${f}"`" ;;
+            sell) got="`      hbc '@q * @p*(1-@f)' q="${quantity}" p="${price}" f="${f}"`" ;;
+        esac
+    fi
+    tradeogre_curl_JSON                   \
+        -X POST                           \
+        "${TRADEOGRE_URL}/order/${order}" \
+        -d market="${market}"             \
+        -d quantity="${quantity}"         \
+        -d price="${price}"
+    if test ! -n "${4}"; then
+        case "${order}" in
+            buy)  echo "${quantity}";;
+            sell) echo "${got}"     ;;
+        esac
+    fi
+}
+tradeogre_orders() {
+    tradeogre_curl_STDOUT \
+        "${TRADEOGRE_URL}/account/orders" \
+        -X POST
+}
+tradeogre_balance() {
+    tradeogre_curl_JSON \
+        "${TRADEOGRE_URL}/account/balance" \
+        -d currency="USDT"
+    jq -r '
+    "Balance   : " + .balance + "\n" +
+    "Available : " + .available
+    ' <<< "${JSON}"
+}
+tradeogre_balances() {
+    tradeogre_curl_JSON "${TRADEOGRE_URL}/account/balances"
+    <<< "${JSON}" \
+        jq -r '.balances | to_entries[] | .key + " " + .value' \
+        | column -t -s ' ' \
+        | sed '/0.00000000/d'
+}
+## -----------------------------------------------------------------------------
+## ---- AUXILIARY --------------------------------------------------------------
+## -----------------------------------------------------------------------------
+tradeogre_is_valid_order() {
+    case "${1}" in
+        buy|sell) true;;
+        '') hlog error "Please specify an order (buy/sell).";    return 1;;
+        *)  hlog error "Invalid order: ${1}, shall be buy/sell"; return 1;;
+    esac
+}
+tradeogre_is_valid_market() {
+    case "${1}" in
+        BTC-*|btc-*)   true;;
+        LTC-*|ltc-*)   true;;
+        USDT-*|usdt-*) true;;
+        '')            hlog error "Please specify a market."; return 1;;
+        *)             hlog error "Invalid market: ${1}.";    return 1;;
+    esac
+}
+tradeogre_curl_STDOUT() {
+    if test -n "${TRADEOGRE_API_KEY}" && test -n "${TRADEOGRE_API_SECRET}"; then
+        local u="${TRADEOGRE_API_KEY}:${TRADEOGRE_API_SECRET}"
+    else
+        local u=""
+    fi
+    curl -s ${u:+ -u "${u}" } "$@"
+}
+tradeogre_curl_JSON() {
+    if test -n "${TRADEOGRE_API_KEY}" && test -n "${TRADEOGRE_API_SECRET}"; then
+        local u="${TRADEOGRE_API_KEY}:${TRADEOGRE_API_SECRET}"
+    else
+        local u=""
+    fi
+    JSON="$(curl ${u:+ -u "${u}" } -s "$@")"
+    local success="$(jq -r '.success' <<< "${JSON}")"
+    if test @"${success}" = @"false" || test @"${success:-null}" = @"null"; then
+        hlog error "$(jq -r '.error' <<< "${JSON}")"
+        return 1
+    fi
+}
+## -----------------------------------------------------------------------------
+tradeogre_calc_variables
+hmain -f "tradeogre" -s "bash" tradeogre "$@"
+

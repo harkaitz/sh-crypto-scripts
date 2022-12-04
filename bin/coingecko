@@ -1,0 +1,167 @@
+#!/bin/bash -e
+#L:
+#L:  MIT License
+#L:  
+#l:  Bug reports, feature requests to gemini|https://harkadev.com/oss
+#l:  Copyright (c) 2022 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+##:
+#h: Usage: $0 ...
+#h:
+#h: ... show                             : Show variables.
+#h: ... list|l     [TICKER]              : List coins.
+#h: ... price|p    COIN [QUANTITY]       : See the price in dollars.
+#h: ... quantity|q COIN DOLLARS          : See the token count.
+#h: ... rate|r     BASE-COIN             : See the rate in coingecko.
+#h: ... range      [BASE-]COIN [DATE...] : Get data points (default a year).
+#h: ... COIN       [DATE...]             : See the price of a coin.
+. hlog
+. hbc
+. hmain
+coingecko() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        show)       coingecko_show_variables               ;;
+        list|l)     coingecko_list "$@" | column -t -s ',' ;;
+        price|p)    coingecko_price    "$@"                ;;
+        quantity|q) coingecko_quantity "$@"                ;;
+        rate|r)     coingecko_rate     "$@"                ;;
+        range)      coingecko_range    "$@"                ;;
+        *)          if test -n "$1"; then
+                        coingecko_history "${cmd}" "$@"
+                    else
+                        coingecko_price "${cmd}"
+                    fi;;
+    esac
+}
+coingecko_show_variables() {
+    printf '%-20s : %s\n'                                 \
+           COINGECKO_CURRENCY   "${COINGECKO_CURRENCY}"   \
+           COINGECKO_API_URL    "${COINGECKO_API_URL}"    \
+           COINGECKO_LIST_CACHE "${COINGECKO_LIST_CACHE}"
+}
+coingecko_calc_variables() {
+    COINGECKO_CURRENCY="${COINGECKO_CURRENCY:-usd}"
+    COINGECKO_API_URL="${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}"
+    COINGECKO_LIST_CACHE="${COINGECKO_LIST_CACHE:-${HOME}/.local/cache/coingecko.lst}"
+}
+## -----------------------------------------------------------------------------
+coingecko_price() {
+    hbc '@p*@q' p="`coingecko_token_price "${1}"`" q="${2:-1}"
+}
+coingecko_quantity() {
+    hbc "@f/@p" p="`coingecko_token_price "${1}"`" f="${2:-1}"
+}
+coingecko_rate() {
+    case "${1}" in
+        *-*) true;;
+        '')  hlog error "Please specify a market, ie USDT-XMR."; return 1;;
+        *)   hlog error "Invalid market format: ${1}"; return 1;;
+    esac
+    local market="$(tr '[:upper:]' '[:lower:]' <<< "${1:-USDT-XMR}")"
+    local base="$(cut -f 1 -d '-' <<< "${market}")"
+    local coin="$(cut -f 2 -d '-' <<< "${market}")"
+    local coin_p="$(coingecko price "${coin}")"
+    local base_p="$(coingecko price "${base}")"
+    hbc '@p/@b' p="${coin_p}" b="${base_p}"
+}
+coingecko_history() {
+    local COIN='' DATE='' query=''
+    coingecko_get_COIN "${1}"
+    shift
+    coingecko_get_DATE "${*}"
+    query="date=${DATE}&localization=false"
+    curl -s "${COINGECKO_API_URL}/coins/${COIN}/history?${query}" | jq -r '
+    .market_data.current_price.usd
+    '
+}
+coingecko_range() {
+    local fr_text= base='' COIN='' fr='' to='' url='' query=''
+    ## Get arguments.
+    case "${1}" in
+        *-*) base="$(cut -d - -f 1 <<< "${1}")"
+             coingecko_get_COIN "$(cut -d - -f 2 <<< "${1}")"
+             ;;
+        *)   base="usd"
+             coingecko_get_COIN "${1}"
+             ;;
+    esac
+    shift
+    fr_text="${*:-31 days ago}"
+    ## Calculate UNIX timestamps.
+    fr="$(date -d "${fr_text}" +%s)"; test -n "${fr}"
+    to="$(date -d "today"      +%s)"; test -n "${to}"
+    ## Make the request.
+    url="${COINGECKO_API_URL}/coins/${COIN}/market_chart/range"
+    query="vs_currency=${base}&from=${fr}&to=${to}"
+    curl -s "${url}?${query}" | jq -r '.prices[] | @csv' | sed 's|...,|,|'
+}
+## -----------------------------------------------------------------------------
+coingecko_get_DATE() {
+    DATE="$(date -d "${1:-yesterday}" +%d-%m-%Y)"
+    if test ! -n "${DATE}"; then
+        hlog error "Invalid or unsupported date."
+        return 1;
+    fi
+}
+coingecko_get_COIN() {
+    if test ! -n "${1}"; then
+        hlog error "Please specify a coin."
+        return 1
+    fi
+    COIN="$(coingecko_list "${1}" | sed -n '1s|^[^,]*,||p')"
+    if test ! -n "${COIN}"; then
+        hlog error "Can't find the coingecko id of ${1}."
+        return 1
+    fi
+}
+coingecko_list() {
+    if test ! -e "${COINGECKO_LIST_CACHE}"; then
+        curl -s 'https://api.coingecko.com/api/v3/coins/list' | jq -r '
+        .[] | .symbol + "," + .id' > "${COINGECKO_LIST_CACHE}.tmp"
+        mv "${COINGECKO_LIST_CACHE}.tmp" "${COINGECKO_LIST_CACHE}"
+    fi
+    if test -n "${1}"; then
+        local symbol="`echo "${1}" | tr '[:upper:]' '[:lower:]'`"
+        grep "^${symbol}," "${COINGECKO_LIST_CACHE}"
+    else
+        cat "${COINGECKO_LIST_CACHE}"
+    fi
+}
+coingecko_token_price() {
+    local id='' 
+    if test ! -n "${1}"; then
+        hlog error "Please specify a coin."
+        return 1
+    fi
+    id="`coingecko_list "${1}" | sed -n '1s|^[^,]*,||p'`"
+    if test ! -n "${id}"; then
+        hlog error "Symbol not found."
+        return 1
+    fi
+    curl -s "${COINGECKO_API_URL}/coins/${id}?localization=false" | jq -r '
+    .market_data.current_price.usd
+    '    
+}
+## -----------------------------------------------------------------------------
+coingecko_calc_variables
+hmain -f "coingecko" -s "bash" coingecko "$@"

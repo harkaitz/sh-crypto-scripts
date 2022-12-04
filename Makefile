@@ -7,8 +7,10 @@ install:
 install: install-sh
 install-sh:
 	@mkdir -p $(DESTDIR)$(PREFIX)/bin
-	@echo 'I bin/xmrig-setup'; cp bin/xmrig-setup $(DESTDIR)$(PREFIX)/bin
+	@echo 'I bin/fiat-calculator'; cp bin/fiat-calculator $(DESTDIR)$(PREFIX)/bin
 	@echo 'I bin/monero-setup'; cp bin/monero-setup $(DESTDIR)$(PREFIX)/bin
+	@echo 'I bin/coingecko' ; cp bin/coingecko   $(DESTDIR)$(PREFIX)/bin
+	@echo 'I bin/tradeogre' ; cp bin/tradeogre   $(DESTDIR)$(PREFIX)/bin
 ## -- install-sh --
 ## -- license --
 install: install-license

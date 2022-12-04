@@ -5,11 +5,34 @@ Some scripts to configure some cryptocurrency nodes and miners.
 ## Prerequisites
 
 - [sh-hutil](https://github.com/harkaitz/sh-hutil) SH utility library.
-- wget, tag, ...
+- wget, curl, jq, ...
 - sudo
 - Tested in Void Linux.
 
 ## Help
+
+coingecko
+
+    Usage: coingecko ...
+    
+    ... show                             : Show variables.
+    ... list|l     [TICKER]              : List coins.
+    ... price|p    COIN [QUANTITY]       : See the price in dollars.
+    ... quantity|q COIN DOLLARS          : See the token count.
+    ... rate|r     BASE-COIN             : See the rate in coingecko.
+    ... range      [BASE-]COIN [DATE...] : Get data points (default a year).
+    ... COIN       [DATE...]             : See the price of a coin.
+
+fiat-calculator
+
+    Usage: fiat-calculator ...
+    
+    Get currency rates to the dollar with `www.calculator.net`.
+    
+    ... show                    : Show variables.
+    ... list|l                  : List available currencies.
+    ... price|p COIN [QUANTITY] : See the price in dollars.
+    ... COIN                    : See the price in dollars.
 
 monero-setup
 
@@ -40,25 +63,25 @@ monero-setup
         -s          : Create service (Only Void Linux).
         -e          : Enable service (Only Void Linux).
 
-xmrig-setup
+tradeogre
 
-    Usage: XMR_MINING_ADDR=XMR-ADDR/ANYTHING/EMAIL xmrig-setup ...
+    Usage: tradeogre ...
     
-    Build and configure XMRIG to mine monero. Please set XMR_MINING_ADDR
-    environment variable before `b-tar` to configure it to mine for you.
+    Command line interface to the tradeogre exchange.
+    (MARKET: PRICE-QUANTITY)
     
-    The chosen pool is "nanopool".
+    ... markets                         : List market names.
+    ... orderbook[-c] {buy,sell} MARKET : View market order book.
+    ... ticker[-c]               MARKET : List ticker.
+    ... mhistory                 MARKET : Print history.
+    ... diff                     MARKET : Print difference to coingecko.
     
-    ... b-deps              : Build dependencies.
-    ... b-tar               : Build XMRIG tar.
-    ... nanopool            : Show your mining progress.
-    ... install MACHINES... : Install XMRIG tar (Launch with `sudo xmrig`)
-    ... cpus    MACHINES... : List the CPU from the logfile.
-    ... speed   MACHINES... : View last recorded speed.
-    ... status  MACHINES... : View service status.
-    ... stop    MACHINES... : Stop services in machines.
-    ... enable  MACHINES... : Enable services in machines.
-    ... disable MACHINES... : Disable services in machines.
+    ... buy|sell MRK QUANT PRICE  : Put operation.
+    ... buy      MRK BASE         : Match with orderbook.
+    ... sell     MRK QUANT        : Match with orderbook.
+    ... orders                    : Pending orders.
+    ... balance                   : Balance in configured currency.
+    ... balances                  : Portfolio.
 
 ## Collaborating
 
