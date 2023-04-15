@@ -63,6 +63,9 @@ coingecko_calc_variables() {
     COINGECKO_CURRENCY="${COINGECKO_CURRENCY:-usd}"
     COINGECKO_API_URL="${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}"
     COINGECKO_LIST_CACHE="${COINGECKO_LIST_CACHE:-${HOME}/.local/cache/coingecko.lst}"
+    case "`uname -o`" in
+        Msys) export PATH="/mingw64/bin:$PATH";;
+    esac
 }
 ## -----------------------------------------------------------------------------
 coingecko_price() {
@@ -136,6 +139,7 @@ coingecko_get_COIN() {
 }
 coingecko_list() {
     if test ! -e "${COINGECKO_LIST_CACHE}"; then
+        mkdir -p "`dirname "${COINGECKO_LIST_CACHE}"`"
         curl -s 'https://api.coingecko.com/api/v3/coins/list' | jq -r '
         .[] | .symbol + "," + .id' > "${COINGECKO_LIST_CACHE}.tmp"
         mv "${COINGECKO_LIST_CACHE}.tmp" "${COINGECKO_LIST_CACHE}"
@@ -160,8 +164,8 @@ coingecko_token_price() {
     fi
     curl -s "${COINGECKO_API_URL}/coins/${id}?localization=false" | jq -r '
     .market_data.current_price.usd
-    '    
+    ' | sed 's|null|0|'
 }
 ## -----------------------------------------------------------------------------
 coingecko_calc_variables
-hmain -f "coingecko" -s "bash" coingecko "$@"
+hmain -f "coingecko" -s "bash" -r "bc" -r "jq" coingecko "$@"
