@@ -1,0 +1,258 @@
+#!/bin/sh -e
+#L:  MIT License
+#L:
+#l:  Copyright (c) 2023 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining a copy
+#L:  of this software and associated documentation files (the "Software"), to deal
+#L:  in the Software without restriction, including without limitation the rights
+#L:  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#L:  copies of the Software, and to permit persons to whom the Software is
+#L:  furnished to do so, subject to the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be included in all
+#L:  copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#L:  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#L:  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#L:  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#L:  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#L:  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#L:  SOFTWARE.
+##:
+#h: Usage: monero-h OPTS... METHOD ARGS...
+#h:
+#h: Helper script for operating a monero wallet.
+#h:
+#h: OPTIONS:
+#h:
+#h:   -w WALLET : Select wallet.
+#h:   -l        : List defined wallets.
+#h:   -V        : Show variables.
+#h:   -i        : Install official Monero client into "/opt/monero".
+#h:   -I        : Install official Monero gui into "/opt/monero-gui".
+#h: 
+#h: OPERATIONS: 
+#h:
+#h:   net-connect       : Connect by SSH to create a node proxy.
+#h:   net-node          : Print node address.
+#h:   cli-recover       : Recover wallet from seed using *Official CLI*.
+#h:   cli-refresh       : Synchronize blocks.
+#h:   cli-balance       : Print balance.
+#h:   cli [COMMAND]     : Execute cli commands.
+#h:   rpc-start  [PORT]      : Open wallet in RPC mode.
+#h:   rpc-create NAME [PORT] : Create RPC user systemd service. 
+##:
+monero_h() {
+    local OPTIND optopt cmd
+
+    ## Parse command line arguments.
+    while getopts "w:lViI" optopt; do
+        case $optopt in
+            w)  local MONERO_WALLET="${OPTARG}";;
+            l)  monero_h_list_wallets     ;;
+            V)  monero_h_show_variables   ;;
+            i)  lsetup_monero_install     ;;
+            I)  lsetup_monero_gui_install ;;
+            \?) return 1;;
+    esac
+    done
+    shift $(( $OPTIND - 1 ))
+    if test ! -n "${1}"; then return 0; fi
+    
+    ## Operations.
+    cmd="$1"
+    shift
+    case "${cmd}" in
+        help)        monero_h_help         ;;
+        net-ssh)     monero_h_net_ssh      ;;
+        net-node)    monero_h_net_node     ;;
+        cli-recover) monero_h_cli_recover  ;;
+        cli-refresh) monero_h_cli refresh  ;;
+        cli-balance) monero_h_cli balance | sed -n '/^Balance/p' ;;
+        cli)         monero_h_cli "$@"        ;;
+        rpc-start)   monero_h_rpc_start       ;;
+        rpc-create)  monero_h_rpc_create "$@" ;;
+        *) echo >&2 "error: Invalid argument: ${cmd}"; return 1;;
+    esac
+}
+monero_h_show_variables() {
+    cat <<-EOF
+	MONERO_WALLET     : ${MONERO_WALLET}
+	MONERO_WALLET_DIR : ${MONERO_WALLET_DIR}
+	MONERO_NODE       : ${MONERO_NODE}
+	MONERO_NODE_PROXY : ${MONERO_NODE_PROXY}
+	MONERO_RPC_PORT   : ${MONERO_RPC_PORT}
+	EOF
+}
+monero_h_calc_variables() {
+    MONERO_WALLET=wallet1
+    MONERO_WALLET_DIR="${HOME}/Blockchain/xmr"
+    if test -e "/opt/monero"; then
+        export PATH="/opt/monero${SEP:-:}${PATH}"
+    fi
+    MONERO_NODE="node.moneroworld.com:18089"
+    MONERO_NODE_PROXY=""
+    MONERO_RPC_PORT=18081
+}
+## -------------------------------------------------------------------
+monero_h_help() {
+    sed -n 's/^ *#h: \{0,1\}//p' "$0"
+    echo ""
+    sed -n 's/^ *#l: \{0,2\}//p' "$0"
+}
+monero_h_list_wallets() {
+    if test -d "${MONERO_WALLET_DIR}"; then
+        find "${MONERO_WALLET_DIR}" -iname '*.wallet' -exec 'basename' '{}' '.wallet' ';'
+    fi
+}
+monero_h_get_wallet() {
+    local f="${MONERO_WALLET_DIR}/${MONERO_WALLET}.wallet"
+    if test ! -e "${f}"; then
+        echo >&2 "error: Wallet '${MONERO_WALLET}' not found."
+        return 1
+    fi
+    echo "${f}"
+}
+monero_h_cli_recover() {
+    mkdir -p "${MONERO_WALLET_DIR}"
+    monero-wallet-cli                       \
+        --offline                           \
+        --generate-new-wallet "${MONERO_WALLET_DIR}/${MONERO_WALLET}.wallet" \
+        --restore-from-seed
+}
+monero_h_cli() {
+    local f="$(monero_h_get_wallet)"; test -n "${f}"
+    monero-wallet-cli                           \
+        --daemon-address "$(monero_h_net_node)" \
+        --untrusted-daemon                      \
+        --password ""                           \
+        --wallet "${f}" \
+        "$@"
+}
+monero_h_rpc_start() {
+    local f="$(monero_h_get_wallet)"; test -n "${f}"
+    monero-wallet-rpc                              \
+        --daemon-address "$(monero_h_net_node)"    \
+        --untrusted-daemon                         \
+        --password ""                              \
+        --wallet-file   "${f}"                     \
+        --rpc-bind-ip   127.0.0.1                  \
+        --rpc-bind-port "${1:-${MONERO_RPC_PORT}}" \
+        --disable-rpc-login                        \
+        "$@"
+}
+monero_h_rpc_create() {
+    local name="$1"
+    local port="${2:-${MONERO_RPC_PORT}}"
+    local directory="${HOME}/.config/systemd/user"
+    if test ! -n "${name}"; then
+        echo >&2 "error: Please specify a name."
+        return 1
+    fi
+    local f="$(monero_h_get_wallet)"; test -n "${f}"
+    local exec="$(which monero-wallet-rpc)"
+    local exec="${exec} --daemon-address $(monero_h_net_node)"
+    local exec="${exec} --untrusted-daemon --password \"\""
+    local exec="${exec} --wallet-file ${f}"
+    local exec="${exec} --rpc-bind-ip 127.0.0.1 --rpc-bind-port ${port}"
+    local exec="${exec} --disable-rpc-login"
+
+    echo "Creating ${directory}/${name}.service ..."
+    mkdir -p "${directory}"
+    cat > "${directory}/${name}.service" <<-EOF
+	[Unit]
+	Description=Monero RPC - ${name}
+	
+	[Service]
+	ExecStart=${exec}
+	
+	[Install]
+	WantedBy=default.target
+	EOF
+    
+    systemctl --user daemon-reload
+    systemctl --user enable  "${name}"
+    systemctl --user restart "${name}"
+}
+lsetup_monero_download() {
+    local u z
+    u="https://downloads.getmonero.org/cli/linux64"
+    z="${DDIR:-/tmp}/monero.tar.bz2"
+    echo "Downloading Monero from $u ..." >&2
+    if test ! -e "${z}"; then
+        wget -O "${z}.tmp" "${u}" >&2
+        mv -v "${z}.tmp" "${z}"   >&2
+    fi
+    echo "${z}"
+}
+lsetup_monero_install() {
+    local z
+    if test ! -e "/opt/monero/monero-wallet-cli"; then
+        z="$(lsetup_monero_download)"; test -n "${z}"
+        echo "Installing Monero in /opt/monero ..." >&2
+        sudo mkdir -p "/opt/monero"
+        sudo tar xf "${z}" -C "/opt/monero" --strip-components=1
+    fi
+}
+lsetup_monero_gui_download() {
+    local u z
+    u="https://downloads.getmonero.org/gui/linux64"
+    z="${DDIR:-/tmp}/monero-gui.tar.bz2"
+    echo "Downloading Monero GUI from $u ..." >&2
+    if test ! -e "${z}"; then
+        wget -O "${z}.tmp" "${u}" >&2
+        mv -v "${z}.tmp" "${z}"   >&2
+    fi
+    echo "${z}"
+}
+lsetup_monero_gui_install() {
+    local z
+    if test ! -e "/opt/monero-gui/monero-wallet-gui"; then
+        z="$(lsetup_monero_gui_download)"; test -n "${z}"
+        echo "Installing Monero GUI in /opt/monero-gui ..." >&2
+        sudo mkdir -p "/opt/monero-gui"
+        sudo tar xf "${z}" -C "/opt/monero-gui" --strip-components=1
+    fi
+    echo "Creating /bin/monero ..."
+    sudo tee /bin/monero <<-EOF >/dev/null
+	#!/bin/sh -e
+	echo "Log to ~/.log/monero.log ..."
+	mkdir -p ~/.log
+	exec "/opt/monero-gui/monero-wallet-gui" "\$@" > ~/.log/monero.log 2>&1 &
+	EOF
+    sudo chmod +x /bin/monero
+}
+lsetup_monero_remove() {
+    echo rm -rf /opt/monero /opt/monero-gui /bin/monero
+    sudo rm -rf /opt/monero /opt/monero-gui /bin/monero
+}
+## -------------------------------------------------------------------
+monero_h_net_node() {
+    if test -n "${MONERO_NODE_PROXY}"; then
+        echo "127.0.0.1:18089"
+    else
+        echo "${MONERO_NODE}"
+    fi
+}
+monero_h_net_ssh() {
+    ssh -L "127.0.0.1:18089:${MONERO_NODE}" "${MONERO_NODE_PROXY}" '
+    while true; do
+        clear
+        date
+        echo "+--------------------------------------+"
+        echo "| Monero stagenet in 127.0.0.1:18081   |"
+        echo "| Monero testnet  in 127.0.0.1:18082   |"
+        echo "+--------------------------------------+"
+        sleep 5
+    done'
+}
+## -------------------------------------------------------------------
+monero_h_calc_variables
+if test @"$(basename "$0")" = @"monero-h"; then
+    case "${1}" in
+        ''|-h|--help) monero_h_help;;
+        *)            monero_h "$@"; exit 0;;
+    esac
+fi

@@ -1,0 +1,155 @@
+#!/bin/sh -e
+#L:  MIT License
+#L:
+#l:  Copyright (c) 2023 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining a copy
+#L:  of this software and associated documentation files (the "Software"), to deal
+#L:  in the Software without restriction, including without limitation the rights
+#L:  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#L:  copies of the Software, and to permit persons to whom the Software is
+#L:  furnished to do so, subject to the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be included in all
+#L:  copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#L:  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#L:  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#L:  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#L:  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#L:  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#L:  SOFTWARE.
+##:
+#h: Usage: bitcoin-h ...
+#h:
+#h: -i : Download electrum.
+#h: -r : Remove electrum.
+#h: -w WALLET :
+#h: -l        : List wallets.
+#h: -V        :
+#h:
+#h:   gui              : Open electrum wallet.
+#h:   cli-recover SEED : Recover wallet (use gui for segwit).
+bitcoin_h() {
+    local OPTIND optopt ops=
+
+    ## Parse command line arguments.
+    while getopts "w:irlV" optopt; do
+        case $optopt in
+            w)  ELECTRUM_WALLET="${OPTARG}" ;;
+            i)  electrum_install; return 0  ;;
+            r)  electrum_remove;  return 0  ;;
+            l)  electrum_list_wallets       ;;
+            V)  bitcoin_h_show_variables; return 0;;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+
+    ## Operations.
+    cmd="$1"
+    shift
+    case "${cmd}" in
+        gui)         electrum ;;
+        cli-recover) electrum_cli_recover "$@" ;;
+    esac
+    
+}
+bitcoin_h_show_variables() {
+    cat <<-EOF
+	ELECTRUM_WALLET     : ${ELECTRUM_WALLET}
+	ELECTRUM_WALLET_DIR : ${ELECTRUM_WALLET_DIR}
+	EOF
+}
+bitcoin_h_calc_variables() {
+    ELECTRUM_WALLET="wallet1"
+    ELECTRUM_WALLET_DIR="${HOME}/Blockchain/btc"
+}
+## -------------------------------------------------------------------
+electrum_enable_rpc() {
+    electrum setconfig rpcport 7777
+}
+electrum_cli_get_wallet() {
+    local f=
+    
+}
+electrum_list_wallets() {
+    if test -d "${ELECTRUM_WALLET_DIR}"; then
+        find "${ELECTRUM_WALLET_DIR}" -iname '*.electrum' -exec 'basename' '{}' '.electrum' ';'
+    fi
+}
+electrum_cli_recover() {
+    local f="${ELECTRUM_WALLET_DIR}/${ELECTRUM_WALLET}.electrum"
+    if test ! -n "${1}"; then
+        echo >&2 "error: Please specify the text."
+        return 1
+    fi
+    mkdir -p "$(dirname "$f")"
+    electrum --offline --wallet "${f}" restore --password '' "$*"
+}
+
+
+
+## -------------------------------------------------------------------
+electrum_install() {
+    local v d u t
+    v="${ELECTRUM_VERSION:-4.0.9}"
+    d="/opt/electrum"
+    u="https://download.electrum.org/${v}/Electrum-${v}.tar.gz"
+    ##
+    echo "Installing Electrum dependencies ..."
+    if test -e /usr/bin/apt-get; then
+        sudo apt-get -y install "python3-pyqt5" "libsecp256k1-1" "python3-cryptography"
+    else
+        echo "VOID: python3-PyQt5 libbitcoin-secp256k1 python3-cryptography"
+        return 1
+    fi
+    ##
+    echo "Installing Electrum ..."
+    if test ! -e "${d}/setup.py"; then
+        t="$(electrum_download)"; test -n "${t}"
+        sudo mkdir -p "${d}"
+        sudo tar xf "${t}" -C "${d}" --strip-components=1
+    fi
+    ##
+    echo "Creating /bin/electrum ..."
+    sudo tee /bin/electrum <<-EOF >/dev/null
+	#!/bin/sh -e
+	if test -n "\$1"; then
+	    exec python3 '${d}/run_electrum' "\$@"
+	else
+	    mkdir -p ~/.log
+	    echo 'Electrum: Log to ~/.log/electrum.log ...'
+	    exec python3 '${d}/run_electrum' > ~/.log/electrum.log 2>&1 &
+	fi
+	EOF
+    sudo chmod +x /bin/electrum
+}
+electrum_download() {
+    local t
+    t="${DDIR:-/tmp}/$(basename "${u}")"
+    if test ! -e "${t}"; then
+        wget -O "${t}.tmp" "${u}" >&2
+        mv -v "${t}.tmp" "${t}"   >&2
+    fi
+    echo "${t}"
+}
+electrum_remove() {
+    sudo rm -rf /bin/electrum /opt/electrum
+}
+## -------------------------------------------------------------------
+bitcoin_h_calc_variables
+if test @"$(basename "$0")" = @"bitcoin-h"; then
+    case "${1}" in
+        ''|-h|--help)
+            sed -n 's/^ *#h: \{0,1\}//p' "$0"
+            echo ""
+            sed -n 's/^ *#l: \{0,2\}//p' "$0"
+            ;;
+        *)
+            bitcoin_h "$@"
+            exit 0
+            ;;
+    esac
+fi

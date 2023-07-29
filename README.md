@@ -1,15 +1,35 @@
 # SH-CRYPTO-SCRIPTS
 
-Some scripts to configure some cryptocurrency nodes and miners.
+Some scripts to configure some cryptocurrency nodes, miners and RPC
+wallets.
 
 ## Prerequisites
 
 - [sh-hutil](https://github.com/harkaitz/sh-hutil) SH utility library.
 - wget, curl, jq, ...
 - sudo
-- Tested in Void Linux.
+- Tested in Void Linux and Debian.
 
 ## Help
+
+bitcoin-h
+
+    Usage: bitcoin-h ...
+    
+    -i : Download electrum.
+    -r : Remove electrum.
+    -w WALLET :
+    -l        : List wallets.
+    -V        :
+    
+      gui              : Open electrum wallet.
+      cli-recover SEED : Recover wallet (use gui for segwit).
+
+chrome-h-crypto
+
+    Usage: chrome-h-crypto ...
+    
+    ... i-{kepl,bnb,metamask} : Install wallets.
 
 coingecko
 
@@ -33,6 +53,31 @@ fiat-calculator
     ... list|l                  : List available currencies.
     ... price|p COIN [QUANTITY] : See the price in dollars.
     ... COIN                    : See the price in dollars.
+
+monero-h
+
+    Usage: monero-h OPTS... METHOD ARGS...
+    
+    Helper script for operating a monero wallet.
+    
+    OPTIONS:
+    
+      -w WALLET : Select wallet.
+      -l        : List defined wallets.
+      -V        : Show variables.
+      -i        : Install official Monero client into "/opt/monero".
+      -I        : Install official Monero gui into "/opt/monero-gui".
+    
+    OPERATIONS: 
+    
+      net-connect       : Connect by SSH to create a node proxy.
+      net-node          : Print node address.
+      cli-recover       : Recover wallet from seed using *Official CLI*.
+      cli-refresh       : Synchronize blocks.
+      cli-balance       : Print balance.
+      cli [COMMAND]     : Execute cli commands.
+      rpc-start  [PORT]      : Open wallet in RPC mode.
+      rpc-create NAME [PORT] : Create RPC user systemd service. 
 
 monero-setup
 
