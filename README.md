@@ -12,36 +12,11 @@ wallets.
 
 ## Help
 
-bitcoin-h
-
-    Usage: bitcoin-h ...
-    
-    -i : Download electrum.
-    -r : Remove electrum.
-    -w WALLET :
-    -l        : List wallets.
-    -V        :
-    
-      gui              : Open electrum wallet.
-      cli-recover SEED : Recover wallet (use gui for segwit).
-
 chrome-h-crypto
 
     Usage: chrome-h-crypto ...
     
     ... i-{kepl,bnb,metamask} : Install wallets.
-
-coingecko
-
-    Usage: coingecko ...
-    
-    ... show                             : Show variables.
-    ... list|l     [TICKER]              : List coins.
-    ... price|p    COIN [QUANTITY]       : See the price in dollars.
-    ... quantity|q COIN DOLLARS          : See the token count.
-    ... rate|r     BASE-COIN             : See the rate in coingecko.
-    ... range      [BASE-]COIN [DATE...] : Get data points (default a year).
-    ... COIN       [DATE...]             : See the price of a coin.
 
 fiat-calculator
 
