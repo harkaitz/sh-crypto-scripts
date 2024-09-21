@@ -31,57 +31,20 @@ fiat-calculator
 
 monero-h
 
-    Usage: monero-h OPTS... METHOD ARGS...
+    Usage: monero-h { -V , -w WALLET , -l , METHOD ARGS... }
     
     Helper script for operating a monero wallet.
     
-    OPTIONS:
+      net-connect        Connect by SSH to create a node proxy.
+      net-node           Print node address.
+      cli-recover        Recover wallet from seed (daemon not needed)
+      cli-refresh        Synchronize blocks.
+      cli-balance        Print balance.
+      cli [COMMAND]      Execute cli commands.
+      rpc-start  [PORT]       Open wallet in RPC mode.
+      rpc-create NAME [PORT]  Create RPC user systemd service.
     
-      -w WALLET : Select wallet.
-      -l        : List defined wallets.
-      -V        : Show variables.
-      -i        : Install official Monero client into "/opt/monero".
-      -I        : Install official Monero gui into "/opt/monero-gui".
-    
-    OPERATIONS: 
-    
-      net-connect       : Connect by SSH to create a node proxy.
-      net-node          : Print node address.
-      cli-recover       : Recover wallet from seed using *Official CLI*.
-      cli-refresh       : Synchronize blocks.
-      cli-balance       : Print balance.
-      cli [COMMAND]     : Execute cli commands.
-      rpc-start  [PORT]      : Open wallet in RPC mode.
-      rpc-create NAME [PORT] : Create RPC user systemd service. 
-
-monero-setup
-
-    Usage: monero-setup OPTS...
-    
-    Install a Monero Node in a Linux machine. If you have a
-    monero blockchain already stored in a drive you can recover
-    it with `-r`.
-    
-    The following settings have been chosen:
-    
-        - P2P will bind to 0.0.0.0:18080. 
-        - Restricted RPC 0.0.0.0:18081.
-        - Bandwidth: 1MB up, 1MB down.
-        - Peer: node.moneroworld.com.
-        - Public node: false.
-        - Data directory: /var/lib/monero.
-        - Installation prefix: /opt/monero.
-        - Configuration file: /opt/monero/monerod.cfg.
-        - Service name: monero
-    
-    Command line operations:
-    
-        -r data.mdb : Recover from "data.mdb".
-        -i          : Install monero.
-        -c          : Create config file.
-        -l          : Create launcher.
-        -s          : Create service (Only Void Linux).
-        -e          : Enable service (Only Void Linux).
+    You can select and list wallets with -w and -l.
 
 tradeogre
 
