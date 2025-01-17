@@ -5,18 +5,12 @@ wallets.
 
 ## Prerequisites
 
-- [sh-hutil](https://github.com/harkaitz/sh-hutil) SH utility library.
 - wget, curl, jq, ...
 - sudo
 - Tested in Void Linux and Debian.
+- For "fiat-calculator" install "html-lmxml-utils".
 
 ## Help
-
-chrome-h-crypto
-
-    Usage: chrome-h-crypto ...
-    
-    ... i-{kepl,bnb,metamask} : Install wallets.
 
 fiat-calculator
 
@@ -24,10 +18,12 @@ fiat-calculator
     
     Get currency rates to the dollar with `www.calculator.net`.
     
-    ... show                    : Show variables.
-    ... list|l                  : List available currencies.
-    ... price|p COIN [QUANTITY] : See the price in dollars.
-    ... COIN                    : See the price in dollars.
+      show                      Show variables.
+      list|l                    List available currencies.
+      price|p COIN [QUANTITY]   See the price in dollars.
+      COIN                      See the price in dollars.
+    
+    This program requires `html-lmxml-utils` to function.
 
 monero-h
 
@@ -46,29 +42,9 @@ monero-h
     
     You can select and list wallets with -w and -l.
 
-tradeogre
-
-    Usage: tradeogre ...
-    
-    Command line interface to the tradeogre exchange.
-    (MARKET: PRICE-QUANTITY)
-    
-    ... markets                         : List market names.
-    ... orderbook[-c] {buy,sell} MARKET : View market order book.
-    ... ticker[-c]               MARKET : List ticker.
-    ... mhistory                 MARKET : Print history.
-    ... diff                     MARKET : Print difference to coingecko.
-    
-    ... buy|sell MRK QUANT PRICE  : Put operation.
-    ... buy      MRK BASE         : Match with orderbook.
-    ... sell     MRK QUANT        : Match with orderbook.
-    ... orders                    : Pending orders.
-    ... balance                   : Balance in configured currency.
-    ... balances                  : Portfolio.
-
 ## Collaborating
 
-For making bug reports, feature requests and donations visit
+For making bug reports, feature requests, support or consulting visit
 one of the following links:
 
 1. [gemini://harkadev.com/oss/](gemini://harkadev.com/oss/)
