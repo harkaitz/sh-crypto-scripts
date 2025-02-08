@@ -1,0 +1,158 @@
+#!/bin/sh -e
+##:
+#h: Usage: lsetup-monero ...
+#h:
+#h: Script for installing, upgrading and configuring a monero service.
+#h:
+#h:   -d           Download monero cli tar file.
+#h:   -i[u]        Install monero cli in "/opt/monero".
+#h:   -c           Create configuration file in "/opt/monero/monerod.cfg".
+#h:   -l           Create launcher in "/opt/monero/monerod-launcher".
+#h:   -s void      Create Void Linux service.
+#h:   -I data.mdb  Import data.mdb to "/var/lib/monero/lmdb/data.mdb".
+#h:
+#h: To view the choices made execute "lsetup-monero -H".
+#h:
+#h: Tested platforms: Void Linux
+##:
+lsetup_monero() {
+    local OPTIND optopt ops= TAR MONERO_UPDATE= opt_s= opt_I=
+    
+    ## Parse command line arguments.
+    while getopts "diucls:r:I:H" optopt; do
+        ops="${ops}${optopt}"
+        case $optopt in
+            u)  MONERO_UPDATE=y;;
+            s)  opt_s="${OPTARG}";;
+            I)  opt_I="${OPTARG}";;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+    
+    ## Operations
+    case "${ops}" in *H*) monero_cli_help;; esac
+    case "${ops}" in *d*) monero_cli_download_TAR; echo "${TAR}";; esac
+    case "${ops}" in *i*) monero_cli_install;; esac
+    case "${ops}" in *c*) monero_cli_config_server;; esac
+    case "${ops}" in *l*) monero_cli_create_launcher;; esac
+    case "${ops}" in *s*) monero_cli_create_service_"${opt_s}";; esac
+    case "${ops}" in *I*) monero_cli_import_blockchain "${opt_I}";; esac
+}
+
+## -------------------------------------------------------------------
+monero_cli_help() {
+    cat <<-EOF
+	P2P will bind to 0.0.0.0:18080.    Installation: /opt/monero.
+	Restricted RPC 0.0.0.0:18081.      Config file: /opt/monero/monerod.cfg.
+	Bandwidth: 1MB up, 1MB down.       Service name: monero
+	Peer: node.moneroworld.com.
+	Public node: false.
+	Data directory: /var/lib/monero.
+	EOF
+}
+monero_cli_install() {
+    local TAR
+    if test ! -f /opt/monero/monerod || test -n "${MONERO_UPDATE}"; then
+        monero_cli_download_TAR
+        sudo mkdir -p /opt/monero
+        sudo tar xvf "${TAR}" --strip-components=1 --exclude=LICENSE -C /opt/monero
+    fi
+}
+monero_cli_download_TAR() {
+    local u="https://downloads.getmonero.org/${1:-cli}" n t
+    local m="$(uname -s).$(uname -m)"
+    case "${m}" in
+        Linux.x86_64)  u="${u}/linux64"   n="monero-linux-${1:-cli}-x64.tar.bz2"  ;;
+        Linux.i686)    u="${u}/linux32"   n="monero-linux-${1:-cli}-x86.tar.bz2"  ;;
+        Linux.aarch64) u="${u}/linuxarm8" n="monero-linux-${1:-cli}-armv8.tar.bz2";;
+        Linux.arm*)    u="${u}/linuxarm7" n="monero-linux-${1:-cli}-armv7.tar.bz2";;
+        *) echo >&2 "error: Unsupported platform: ${m}"; return 1;;
+    esac
+    t="${TEMP:-/tmp}/${n}"
+    if test ! -f "${t}"; then
+        wget -O "${t}.tmp" "${u}"
+        mv -v "${t}.tmp" "${t}"
+    fi
+    TAR="${t}"
+}
+monero_cli_config_server() {
+    local cfgfile="/opt/monero/monerod.cfg"
+    local datadir="/var/lib/monero"
+    local logfile="/var/log/monero/monero.log"
+    sudo mkdir -p "$(dirname "${cfgfile}")"
+    sudo mkdir -p "${datadir}"
+    sudo mkdir -p "$(dirname "${logfile}")"
+    sudo tee "/opt/monero/monerod.cfg" <<-EOF > /dev/null
+	## Data location.
+	data-dir=${datadir}
+	log-file=${logfile}
+	max-log-file-size=10000
+	prune-blockchain=true
+	db-sync-mode=fastest:async
+	
+	## P2P Full node.
+	p2p-bind-ip=0.0.0.0            # Bind to all interfaces (the default)
+	p2p-bind-port=18080            # Bind to default port
+	public-node=false
+	
+	## RPC
+	rpc-bind-ip=0.0.0.0            # Bind to all interfaces
+	rpc-bind-port=18081            # Bind on default port
+	confirm-external-bind=1        # Open node (confirm)
+	restricted-rpc=1               # Prevent unsafe RPC calls
+	no-zmq=true
+	
+	## PEER
+	add-peer=node.moneroworld.com
+	
+	## DNS (Block known malicious)
+	enforce-dns-checkpointing=1
+	enable-dns-blocklist=true
+	
+	## UPNP
+	no-igd=false
+	
+	## Bandwidth
+	out-peers=64
+	in-peers=-1
+	limit-rate-up=1048576
+	limit-rate-down=1048576
+	EOF
+}
+monero_cli_create_launcher() {
+    sudo mkdir -p /opt/monero
+    sudo tee /opt/monero/monerod-launcher > /dev/null <<-EOF
+	#!/bin/sh -e
+	if test "\$(whoami)" = "root"; then
+	    exec nice "/opt/monero/monerod" --non-interactive --config-file /opt/monero/monerod.cfg
+	elif test -t 0; then
+	    exec sudo nice "/opt/monero/monerod" --config-file /opt/monero/monerod.cfg
+	else
+	    echo "monerod-launcher: Launch this as root." >&2
+	    exit 1
+	fi
+	EOF
+    sudo chmod +x /opt/monero/monerod-launcher
+}
+monero_cli_create_service_void() {
+    sudo mkdir -p /etc/sv/monero
+    sudo tee /etc/sv/monero/run <<-EOF > /dev/null
+	#!/bin/sh
+	exec /opt/monero/monerod-launcher
+	EOF
+    sudo chmod +x /etc/sv/monero/run
+}
+## -------------------------------------------------------------------
+monero_cli_import_blockchain() {
+    sudo mkdir -p /var/lib/monero/lmdb
+    sudo dd if="${1}" of="/var/lib/monero/lmdb/data.mdb" status="progress" bs="100M"
+}
+
+## -------------------------------------------------------------------
+if test @"${SCRNAME:-$(basename "$0")}" = @"lsetup-monero"; then
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        *)            lsetup_monero "$@"; exit 0;;
+    esac
+fi

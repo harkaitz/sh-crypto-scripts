@@ -25,4 +25,8 @@ install-sh:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp bin/fiat-calculator $(DESTDIR)$(PREFIX)/bin
 	cp bin/monero-h $(DESTDIR)$(PREFIX)/bin
+        if ($(UNAME_S),Linux)
+	  cp bin/lsetup-monero $(DESTDIR)$(PREFIX)/bin
+	  cp bin/lsetup-monero-gui $(DESTDIR)$(PREFIX)/bin
+        endif
 ## -- BLOCK:sh --

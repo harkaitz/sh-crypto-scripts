@@ -25,6 +25,35 @@ fiat-calculator
     
     This program requires `html-lmxml-utils` to function.
 
+lsetup-monero
+
+    Usage: lsetup-monero ...
+    
+    Script for installing, upgrading and configuring a monero service.
+    
+      -d           Download monero cli tar file.
+      -i[u]        Install monero cli in "/opt/monero".
+      -c           Create configuration file in "/opt/monero/monerod.cfg".
+      -l           Create launcher in "/opt/monero/monerod-launcher".
+      -s void      Create Void Linux service.
+      -I data.mdb  Import data.mdb to "/var/lib/monero/lmdb/data.mdb".
+    
+    To view the choices made execute "lsetup-monero -H".
+    
+    Tested platforms: Void Linux
+
+lsetup-monero-gui
+
+    Usage: lsetup-monero-gui ...
+    
+    Script for installing, upgrading and configuring a monero GUI.
+    
+      -d      Download monero gui tar file.
+      -i[u]   Install monero gui in "/opt/monero-gui".
+      -l      Create wrapper in "/bin/monero" with log in "~/.log/monero.log".
+    
+    Tested platforms: Debian
+
 monero-h
 
     Usage: monero-h { -V , -w WALLET , -l , METHOD ARGS... }

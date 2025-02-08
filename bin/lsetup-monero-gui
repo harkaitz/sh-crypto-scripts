@@ -1,0 +1,57 @@
+#!/bin/sh -e
+##:
+#h: Usage: lsetup-monero-gui ...
+#h:
+#h: Script for installing, upgrading and configuring a monero GUI.
+#h:
+#h:   -d      Download monero gui tar file.
+#h:   -i[u]   Install monero gui in "/opt/monero-gui".
+#h:   -l      Create wrapper in "/bin/monero" with log in "~/.log/monero.log".
+#h:
+#h: Tested platforms: Debian
+##:
+. lsetup-monero
+lsetup_monero_gui() {
+    local OPTIND optopt ops= TAR
+    
+    ## Parse command line arguments.
+    while getopts "diul" optopt; do
+        ops="${ops}${optopt}"
+        case $optopt in
+            u)  MONERO_UPDATE=y;;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+    
+    ## Operations.
+    case "${ops}" in *d*) monero_cli_download_TAR gui; echo "${TAR}";; esac
+    case "${ops}" in *i*) monero_gui_install;; esac
+    case "${ops}" in *l*) monero_gui_create_launcher;; esac
+}
+## -------------------------------------------------------------------
+monero_gui_install() {
+    local TAR
+    if test ! -f /opt/monero-gui/monero-wallet-gui || test -n "${MONERO_UPDATE}"; then
+        monero_cli_download_TAR gui
+        sudo mkdir -p /opt/monero-gui
+        sudo tar xvf "${TAR}" --strip-components=1 --exclude=LICENSE -C /opt/monero-gui
+    fi
+}
+monero_gui_create_launcher() {
+    echo "Creating /bin/monero ..."
+    sudo tee /bin/monero <<-EOF >/dev/null
+	#!/bin/sh -e
+	echo "Log to ~/.log/monero.log ..."
+	mkdir -p ~/.log
+	exec "/opt/monero-gui/monero-wallet-gui" "\$@" > ~/.log/monero.log 2>&1 &
+	EOF
+    sudo chmod +x /bin/monero
+}
+## -------------------------------------------------------------------
+if test @"${SCRNAME:-$(basename "$0")}" = @"lsetup-monero-gui"; then
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        *)            lsetup_monero_gui "$@"; exit 0;;
+    esac
+fi
