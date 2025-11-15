@@ -1,0 +1,69 @@
+#!/bin/sh -e
+##:
+#h: Usage: lsetup-crypto-monero-gui { download | install }
+#h:
+#h: Script for installing, upgrading and configuring a monero GUI.
+#h:
+#h: Environment variables: HOME_PREFIX
+##:
+lsetup_monero_gui() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        download) monero_gui_download ;;
+        install)  monero_gui_install  ;;
+        *)        echo "error: Invalid argument: ${cmd}" >&2; return 1;;
+    esac
+}
+## -------------------------------------------------------------------
+monero_gui_download() {
+    local u="https://downloads.getmonero.org/gui" t
+    local m="$(uname -s)_$(uname -m)"
+    case "${m}" in
+        Linux_x86_64)  u="${u}/linux64"   ;;
+        Linux_i686)    u="${u}/linux32"   ;;
+        Linux_aarch64) u="${u}/linuxarm8" ;;
+        Linux_arm*)    u="${u}/linuxarm7" ;;
+        *) echo >&2 "error: Unsupported platform: ${m}"; return 1;;
+    esac
+    t="${TEMP:-/tmp}/monero_gui_${m}_$(date +%Y-%m).tar.bz2"
+    test -f "${t}" || ${HTTP_GET:-wget -O} "${t}" "${u}" >&2
+    echo "${t}"
+}
+monero_gui_install() {
+    local d="${HOME_PREFIX}/lib/monero-gui" t
+    local l1="${HOME_PREFIX}/bin/monero-wallet-gui"
+    local l2="${HOME_PREFIX}/bin/monero-wallet-cli"
+    local l3="${HOME_PREFIX}/bin/monero-wallet-rpc"
+    if test ! -e "${d}/monero-wallet-gui"; then
+        t="$(monero_gui_download)"
+        test -n "${t}"
+        mkdir -p "${d}"
+        tar xvf "${t}" --strip-components=1 --exclude=LICENSE -C "${d}"
+    fi
+    mkdir -p "${l1%/*}" "${l2%/*}" "${l3%/*}"
+    tee "${l1}" >/dev/null <<-EOF
+	#!/bin/sh -e
+	export PATH=\"${d}:\${PATH}\"
+	exec '${d}/monero-wallet-gui' "\$@"
+	EOF
+    tee "${l2}" >/dev/null <<-EOF
+	#!/bin/sh -e
+	export PATH=\"${d}/extras:\${PATH}\"
+	exec '${d}/extras/monero-wallet-cli' "\$@"
+	EOF
+    tee "${l3}" >/dev/null <<-EOF
+	#!/bin/sh -e
+	export PATH=\"${d}/extras:\${PATH}\"
+	exec '${d}/extras/monero-wallet-rpc' "\$@"
+	EOF
+    chmod +x "${l1}" "${l2}" "${l3}"
+}
+## -------------------------------------------------------------------
+: ${HOME_PREFIX:=${HOME}/.local}
+if test @"${0##*/}" = @"lsetup-crypto-monero-gui"; then
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        *)            lsetup_monero_gui "$@"; exit 0;;
+    esac
+fi

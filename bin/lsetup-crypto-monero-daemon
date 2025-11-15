@@ -1,0 +1,140 @@
+#!/bin/sh -e
+##:
+#h: Usage: lsetup-crypto-monero-daemon ...
+#h:
+#h: Monero Daemon.
+#h:
+#h: ... download  : Download daemon.
+#h: ... install   : Install the daemon in "/opt/monero".
+#h: ... update    : Update the daemon in "/opt/monero".
+#h: ... launcher  : Create "/opt/monero/monerod-launcher".
+#h: ... setup     : Create "/opt/monero/monerod.cfg".
+#h: ... help      : View configuration information.
+#h:
+#h: Environment variables: {OPT,VAR,LOG}_MONERO, LOCAL_PREFIX
+##:
+lsetup_crypto_monero_daemon() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        download) monero_daemon_download    ;;
+        install)  monero_daemon_install     ;;
+        update)   monero_daemon_install u=1 ;;
+        launcher) monero_daemon_launcher    ;;
+        setup)    monero_daemon_setup       ;;
+        help)     monero_daemon_help        ;;
+        *)        echo "error: Invalid argument: ${cmd}" >&2; return 1;;
+    esac
+}
+# --------------------------------------------------------------------
+monero_daemon_download() {
+    local u="https://downloads.getmonero.org/cli" n t
+    local m="$(uname -s)_$(uname -m)"
+    case "${m}" in
+        Linux_x86_64)  u="${u}/linux64"   ;;
+        Linux_i686)    u="${u}/linux32"   ;;
+        Linux_aarch64) u="${u}/linuxarm8" ;;
+        Linux_arm*)    u="${u}/linuxarm7" ;;
+        *) echo >&2 "error: Unsupported platform: ${m}"; return 1;;
+    esac
+    t="${TEMP:-/tmp}/monero_cli_${m}_$(date +%Y-%m).tar.bz2"
+    test -f "${t}" || ${HTTP_GET:-wget -O} "${t}" "${u}" >&2
+    echo "${t}"
+}
+monero_daemon_install() {
+    local u= "$@" t
+    local d="${OPT_MONERO}"
+    local l="${LOCAL_PREFIX}/bin/monerod"
+    if test -n "${u}" || test ! -e "${d}/monerod"; then
+        t="$(monero_daemon_download)"
+        test -n "${t}"
+        $SUDO mkdir -p "${d}"
+        $SUDO tar xvf "${t}" --strip-components=1 --exclude=LICENSE -C "${d}"
+    fi
+}
+monero_daemon_launcher() {
+    local d="${OPT_MONERO}"
+    echo "Creating '${d}/monerod-launcher' ..."
+    $SUDO mkdir -p "${d}"
+    $SUDO tee "${d}/monerod-launcher" > /dev/null <<-EOF
+	#!/bin/sh -e
+	export PATH="${d}:\${PATH}"
+	if test "\$(whoami)" = "root"; then
+	    exec nice "${d}/monerod" --non-interactive --config-file ${d}/monerod.cfg
+	elif test -t 0; then
+	    exec sudo nice "${d}/monerod" --config-file ${d}/monerod.cfg
+	else
+	    echo "monerod-launcher: Launch this as root." >&2
+	    exit 1
+	fi
+	EOF
+    $SUDO chmod +x "${d}/monerod-launcher"
+    if test -d /etc/sv; then
+        echo "Creating '/etc/sv/monero/run' ..."
+        $SUDO mkdir -p /etc/sv/monero
+        $SUDO tee /etc/sv/monero/run <<-EOF > /dev/null
+	#!/bin/sh
+	exec '${d}/monerod-launcher'
+	EOF
+        $SUDO chmod +x /etc/sv/monero/run
+    fi
+}
+monero_daemon_setup() {
+    $SUDO mkdir -p "${OPT_MONERO}" "${VAR_MONERO}" "${LOG_MONERO%/*}"
+    $SUDO tee "${OPT_MONERO}/monerod.cfg" <<-EOF >/dev/null
+	## Data location.
+	data-dir=${VAR_MONERO}
+	log-file=${LOG_MONERO}
+	max-log-file-size=10000
+	prune-blockchain=true
+	db-sync-mode=fastest:async
+	
+	## P2P Full node.
+	p2p-bind-ip=0.0.0.0            # Bind to all interfaces (the default)
+	p2p-bind-port=18080            # Bind to default port
+	public-node=false
+	
+	## RPC
+	rpc-bind-ip=0.0.0.0            # Bind to all interfaces
+	rpc-bind-port=18081            # Bind on default port
+	confirm-external-bind=1        # Open node (confirm)
+	restricted-rpc=1               # Prevent unsafe RPC calls
+	no-zmq=true
+	
+	## PEER
+	## add-peer=node.moneroworld.com
+	
+	## DNS (Block known malicious)
+	enforce-dns-checkpointing=1
+	enable-dns-blocklist=true
+	
+	## UPNP
+	no-igd=false
+	
+	## Bandwidth
+	out-peers=64
+	in-peers=-1
+	limit-rate-up=1048576
+	limit-rate-down=1048576
+	EOF
+}
+monero_daemon_help() {
+    cat <<-EOF
+	P2P will bind to 0.0.0.0:18080.    Installation: /opt/monero.
+	Restricted RPC 0.0.0.0:18081.      Config file: /opt/monero/monerod.cfg.
+	Bandwidth: 1MB up, 1MB down.       Service name: monero
+	Peer: node.moneroworld.com.
+	Public node: false.
+	Data directory: /var/lib/monero.
+	EOF
+}
+# --------------------------------------------------------------------
+: ${OPT_MONERO:=/opt/monero} ${LOCAL_PREFIX:=/usr/local}
+: ${VAR_MONERO:=/var/lib/crypto/monero} ${LOG_MONERO:=/var/log/monero/monero.log}
+if test @"${0##*/}" = @"lsetup-crypto-monero-daemon"; then
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        *)            lsetup_crypto_monero_daemon "$@"; exit 0;;
+    esac
+fi
+

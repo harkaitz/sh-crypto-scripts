@@ -1,0 +1,100 @@
+#!/bin/sh -e
+##:
+#h: Usage: wallet-monero ...
+#h:
+#h: Command line programmable interface to Monero.
+#h:
+#h: ... help    : Help on wallet restoration.
+#h: ... cli     : Open wallet CLI management.
+#h: ... rpc     : Launch RPC.
+#h: ... balance : Show wallet balance.
+#h:
+#h: Environment variables: MONERO_WALLET{,_PASS} MONERO_TRUSTED_NODE
+##:
+wallet_monero() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        help)    wallet_monero_help     ;;
+        cli)     wallet_monero_cli "$@" ;;
+        rpc)     wallet_monero_rpc "$@" ;;
+        balance) wallet_monero_balance "$@" ;;
+        *) echo "error: Invalid argument: ${cmd}" >&2; return 1;;
+    esac
+}
+wallet_monero_show_variables() {
+    cat <<-EOF
+	MONERO_WALLET         : ${MONERO_WALLET}
+	MONERO_WALLET_PASS    : ${MONERO_WALLET_PASS:+******}
+	MONERO_TRUSTED_NODE   : ${MONERO_TRUSTED_NODE}
+	MONERO_LOCAL_RPC_PORT : ${MONERO_LOCAL_RPC_PORT}
+	EOF
+}
+wallet_monero_calc_variables() {
+    : ${MONERO_LOCAL_RPC_PORT:=18081}
+}
+wallet_monero_check_variables() {
+    local ret=0
+    if test ! -n "${MONERO_WALLET}"; then
+        echo "error: Please set MONERO_WALLET to a wallet." >&2
+        ret=1
+    fi
+    if test ! -n "${MONERO_TRUSTED_NODE}"; then
+        echo "error: Please set MONERO_TRUSTED_NODE." >&2
+        ret=1
+    fi
+    return "${ret}"
+}
+# --------------------------------------------------------------------
+wallet_monero_help() {
+    cat <<-EOF
+	Restore from seed
+	
+	    $ monero-wallet-cli \\
+	      --offline         \\
+	      --generate-new-wallet ~/.Monero/wallets/yourname/yourname.wallet \\
+	      --restore-from-seed
+	EOF
+}
+wallet_monero_balance() {
+    sed -n '/^Balance/p' <<-EOF
+	$(wallet_monero_cli balance)
+	EOF
+}
+# --------------------------------------------------------------------
+wallet_monero_cli() {
+    wallet_monero_check_variables
+    monero-wallet-cli \
+        --trusted-daemon \
+        --daemon-address "${MONERO_TRUSTED_NODE}"  \
+        --wallet "${MONERO_WALLET}"        \
+        --password "$(wallet_monero_pass)" \
+        "$@"
+}
+wallet_monero_rpc() {
+    wallet_monero_check_variables
+    monero-wallet-rpc                              \
+        --daemon-address "${MONERO_TRUSTED_NODE}"  \
+        --untrusted-daemon                         \
+        --password      "$(wallet_monero_pass)"    \
+        --wallet-file   "${MONERO_WALLET}"         \
+        --rpc-bind-ip   127.0.0.1                  \
+        --rpc-bind-port "${MONERO_LOCAL_RPC_PORT}" \
+        --disable-rpc-login
+}
+wallet_monero_pass() {
+    case "${MONERO_WALLET_PASS}" in
+        '') true;;
+        @*) ${PASS:-pass} "${MONERO_WALLET_PASS#@}";;
+        *)  echo "${MONERO_WALLET_PASS}";;
+    esac
+}
+# --------------------------------------------------------------------
+wallet_monero_calc_variables
+if test @"${0##*/}" = @"wallet-monero"; then
+    test -f ~/.config.sh || . ~/.config.sh
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        *)            wallet_monero "$@"; exit 0;;
+    esac
+fi
