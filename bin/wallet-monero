@@ -92,7 +92,7 @@ wallet_monero_pass() {
 # --------------------------------------------------------------------
 wallet_monero_calc_variables
 if test @"${0##*/}" = @"wallet-monero"; then
-    test -f ~/.config.sh || . ~/.config.sh
+    test ! -f ~/.config.sh || . ~/.config.sh
     case "${1}" in
         ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
         *)            wallet_monero "$@"; exit 0;;
